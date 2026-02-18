@@ -90,11 +90,12 @@ int burstCount = 0;
 int burstIntensity = 0;
 
 // Runtime calibration variables (loaded from EEPROM on boot)
-uint16_t NEUTRAL_MIN = 1890;
-uint16_t NEUTRAL_MAX = 1930;
-uint16_t MIN_PULSE = 1496;  // Full brake/reverse
-uint16_t MAX_PULSE = 2000;  // Full throttle
-uint16_t NEUTRAL_PULSE = 1916;  // Center neutral
+// Standard RC PWM: 1000μs (brake) - 1500μs (neutral) - 2000μs (throttle)
+uint16_t NEUTRAL_MIN = 1475;   // Neutral deadzone lower bound
+uint16_t NEUTRAL_MAX = 1525;   // Neutral deadzone upper bound
+uint16_t MIN_PULSE = 1000;     // Full brake/reverse
+uint16_t MAX_PULSE = 2000;     // Full throttle
+uint16_t NEUTRAL_PULSE = 1500; // Center neutral
 
 // Runtime effect toggles (loaded from EEPROM on boot)
 bool enableBackfire = true;
@@ -845,10 +846,35 @@ void handleRPMFlicker(int throttle) {
 
   if (throttle > rpmFlickerThreshold) {
 
-    int baseHeat = map(throttle, rpmFlickerThreshold, 100, 120, 255);
-    int flicker = random(-40, 40);
-
-    setFlame(constrain(baseHeat + flicker, 80, 255));
+    // Map throttle to color progression: red -> orange -> yellow -> white -> blue
+    int intensity = map(throttle, rpmFlickerThreshold, 100, 0, 255);
+    intensity = constrain(intensity, 0, 255);
+    
+    CRGB color;
+    int flicker = random(-30, 30);
+    int brightness = constrain(intensity + flicker, 0, 255);
+    
+    if (brightness < 60) {
+      // Deep red (low throttle)
+      color = CRGB(brightness * 4, 0, 0);
+    }
+    else if (brightness < 120) {
+      // Red to orange
+      int fade = map(brightness, 60, 120, 0, 255);
+      color = CRGB(255, fade / 2, 0);
+    }
+    else if (brightness < 180) {
+      // Orange to yellow-white
+      int fade = map(brightness, 120, 180, 0, 255);
+      color = CRGB(255, 200 + (fade / 4), fade / 2);
+    }
+    else {
+      // White to blue (high throttle)
+      int fade = map(brightness, 180, 255, 0, 255);
+      color = CRGB(255 - fade, 255 - (fade / 2), 255);
+    }
+    
+    fill_solid(leds, NUM_LEDS, color);
 
   } else {
     fadeToBlackBy(leds, NUM_LEDS, 40);
@@ -1231,9 +1257,9 @@ void setupWebServer() {
       <h2>RPM Flicker Settings</h2>
       <div class="stat">
         <span class="label">Start Threshold</span>
-        <span class="value"><input type="range" id="rpmThreshold" min="0" max="50" value="10" onchange="updateThreshold('rpmThreshold', this.value)"> <span id="rpmThresholdVal">...</span>%</span>
+        <span class="value"><input type="range" id="rpmThreshold" min="0" max="100" value="10" onchange="updateThreshold('rpmThreshold', this.value)"> <span id="rpmThresholdVal">...</span>%</span>
       </div>
-      <p style="color:#aaa; font-size:0.9em; margin-top:10px;">Throttle position where LEDs start glowing (0% = immediate, 50% = near WOT)</p>
+      <p style="color:#aaa; font-size:0.9em; margin-top:10px;">Throttle position where LEDs start glowing (0% = immediate, 100% = full throttle)</p>
     </div>
 
     <div class="card">
